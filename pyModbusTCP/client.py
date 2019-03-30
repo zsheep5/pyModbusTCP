@@ -2,13 +2,14 @@
 
 # Python module: ModbusClient class (Client ModBus/TCP)
 
-from . import constants as const
-from .utils import crc16, set_bit
+import modbus_constants as const
+from modbus_utils import crc16, set_bit, ascii_to_char_bit
 import re
 import socket
 import select
 import struct
 import random
+import binascii
 
 
 class ModbusClient:
@@ -18,12 +19,9 @@ class ModbusClient:
     def __init__(self, host=None, port=None, unit_id=None, timeout=None,
                  debug=None, auto_open=None, auto_close=None):
         """Constructor
-
         Modbus server params (host, port) can be set here or with host(), port()
         functions. Same for debug option.
-
         Use functions avoid to launch ValueError except if params is incorrect.
-
         :param host: hostname or IPv4/IPv6 address server address (optional)
         :type host: str
         :param port: TCP port number (optional)
@@ -87,7 +85,6 @@ class ModbusClient:
 
     def version(self):
         """Get package version
-
         :return: current version of the package (like "0.0.1")
         :rtype: str
         """
@@ -95,7 +92,6 @@ class ModbusClient:
 
     def last_error(self):
         """Get last error code
-
         :return: last error code
         :rtype: int
         """
@@ -103,7 +99,6 @@ class ModbusClient:
 
     def last_except(self):
         """Get last except code
-
         :return: last except code
         :rtype: int
         """
@@ -111,7 +106,6 @@ class ModbusClient:
 
     def host(self, hostname=None):
         """Get or set host (IPv4/IPv6 or hostname like 'plc.domain.net')
-
         :param hostname: hostname or IPv4/IPv6 address or None for get value
         :type hostname: str or None
         :returns: hostname or None if set fail
@@ -144,7 +138,6 @@ class ModbusClient:
 
     def port(self, port=None):
         """Get or set TCP port
-
         :param port: TCP port number or None for get value
         :type port: int or None
         :returns: TCP port or None if set fail
@@ -163,7 +156,6 @@ class ModbusClient:
 
     def unit_id(self, unit_id=None):
         """Get or set unit ID field
-
         :param unit_id: unit ID (0 to 255) or None for get value
         :type unit_id: int or None
         :returns: unit ID or None if set fail
@@ -179,7 +171,6 @@ class ModbusClient:
 
     def timeout(self, timeout=None):
         """Get or set timeout field
-
         :param timeout: socket timeout in seconds or None for get value
         :type timeout: float or None
         :returns: timeout or None if set fail
@@ -195,7 +186,6 @@ class ModbusClient:
 
     def debug(self, state=None):
         """Get or set debug mode
-
         :param state: debug state or None for get value
         :type state: bool or None
         :returns: debug state or None if set fail
@@ -208,7 +198,6 @@ class ModbusClient:
 
     def auto_open(self, state=None):
         """Get or set automatic TCP connect mode
-
         :param state: auto_open state or None for get value
         :type state: bool or None
         :returns: auto_open state or None if set fail
@@ -221,7 +210,6 @@ class ModbusClient:
 
     def auto_close(self, state=None):
         """Get or set automatic TCP close mode (after each request)
-
         :param state: auto_close state or None for get value
         :type state: bool or None
         :returns: auto_close state or None if set fail
@@ -234,7 +222,6 @@ class ModbusClient:
 
     def mode(self, mode=None):
         """Get or set modbus mode (TCP or RTU)
-
         :param mode: mode (MODBUS_TCP/MODBUS_RTU) to set or None for get value
         :type mode: int
         :returns: mode or None if set fail
@@ -250,7 +237,6 @@ class ModbusClient:
 
     def open(self):
         """Connect to modbus server (open TCP connection)
-
         :returns: connect status (True if open)
         :rtype: bool
         """
@@ -288,7 +274,6 @@ class ModbusClient:
 
     def is_open(self):
         """Get status of TCP connection
-
         :returns: status (True for open)
         :rtype: bool
         """
@@ -296,7 +281,6 @@ class ModbusClient:
 
     def close(self):
         """Close TCP connection
-
         :returns: close status (True for close/None if already close)
         :rtype: bool or None
         """
@@ -309,7 +293,6 @@ class ModbusClient:
 
     def read_coils(self, bit_addr, bit_nb=1):
         """Modbus function READ_COILS (0x01)
-
         :param bit_addr: bit address (0 to 65535)
         :type bit_addr: int
         :param bit_nb: number of bits to read (1 to 2000)
@@ -366,7 +349,6 @@ class ModbusClient:
 
     def read_discrete_inputs(self, bit_addr, bit_nb=1):
         """Modbus function READ_DISCRETE_INPUTS (0x02)
-
         :param bit_addr: bit address (0 to 65535)
         :type bit_addr: int
         :param bit_nb: number of bits to read (1 to 2000)
@@ -421,9 +403,55 @@ class ModbusClient:
         # return bits list
         return bits
 
+    def read_holder_registers_ascii(self, pstart_addr, pend_addr ):
+        """Read rang of holding register and convert the result to ASCII
+        :param pstart_addr: register address (0 to 65535) :type start_addr: int
+        :param pend_addr: register address end_addr >= pstart  end_addr <= 65535 
+        :type end_addr: int
+        :returns: ASCII string
+        """
+        if pstart_addr < 0 or pend_addr <= pstart_addr or pend_addr > 65535:
+            self.__debug_msg("""read_holding_registers(): Requested Register are 
+                                out of range or stat and end are reversed""")
+            return None
+
+        _rtext = '' ##ASCII string holder
+        _count = pstart_addr 
+        while _count <= pend_addr:  ## going to loop over request one register  at time. Yes i know I  can request multiple registers 
+            # build frame
+            tx_buffer = self._mbus_frame(const.READ_HOLDING_REGISTERS, struct.pack('>HH', _count, 1))
+            # send request
+            s_send = self._send_mbus(tx_buffer)
+            # check error
+            if not s_send:
+                return None
+            # receive
+            f_body = self._recv_mbus()
+            # check error
+            if not f_body:
+                return None
+            # check min frame body size  
+            if len(f_body) < 2:
+                self.__last_error = const.MB_RECV_ERR
+            self.__debug_msg('read_holding_registers(): rx frame under min size')
+            self.close()
+            return None
+            # extract field "byte count"
+            rx_byte_count = struct.unpack('B', f_body[0:1])[0]
+            # frame with regs value
+            f_regs = f_body[1:]
+            # check rx_byte_count: check to make sure only one register was returned if not return an erro 
+            if not ((rx_byte_count >= 2 ) and (rx_byte_count == len(f_regs))):
+                self.__last_error = const.MB_RECV_ERR
+                self.__debug_msg('read_holding_registers(): rx byte count mismatch')
+                self.close()
+                return None
+            _rtext = + b''.join(f_regs[1:]).decode('ascii') ##decode the byte stream to acsii 
+            _count + 1
+        return _rtext
+
     def read_holding_registers(self, reg_addr, reg_nb=1):
         """Modbus function READ_HOLDING_REGISTERS (0x03)
-
         :param reg_addr: register address (0 to 65535)
         :type reg_addr: int
         :param reg_nb: number of registers to read (1 to 125)
@@ -480,7 +508,6 @@ class ModbusClient:
 
     def read_input_registers(self, reg_addr, reg_nb=1):
         """Modbus function READ_INPUT_REGISTERS (0x04)
-
         :param reg_addr: register address (0 to 65535)
         :type reg_addr: int
         :param reg_nb: number of registers to read (1 to 125)
@@ -537,7 +564,6 @@ class ModbusClient:
 
     def write_single_coil(self, bit_addr, bit_value):
         """Modbus function WRITE_SINGLE_COIL (0x05)
-
         :param bit_addr: bit address (0 to 65535)
         :type bit_addr: int
         :param bit_value: bit value to write
@@ -576,7 +602,6 @@ class ModbusClient:
 
     def write_single_register(self, reg_addr, reg_value):
         """Modbus function WRITE_SINGLE_REGISTER (0x06)
-
         :param reg_addr: register address (0 to 65535)
         :type reg_addr: int
         :param reg_value: register value to write
@@ -618,7 +643,6 @@ class ModbusClient:
 
     def write_multiple_coils(self, bits_addr, bits_value):
         """Modbus function WRITE_MULTIPLE_COILS (0x0F)
-
         :param bits_addr: bits address (0 to 65535)
         :type bits_addr: int
         :param bits_value: bits values to write
@@ -679,9 +703,71 @@ class ModbusClient:
         is_ok = (rx_bit_addr == bits_addr)
         return True if is_ok else None
 
+    def write_multiple_register_ascii(self, regs_addr, regs_value):
+        """ this takes in a string value converts to unsigned char values 16 bits long 
+        it will continue consume registers until the end of the string... 
+        Only 2 characters can be in a register 
+        a long string will eat up a lot of registers 40 chars equals 20 registers n/2
+        as each register can handle two characters if an odd number of chars
+        pad with a space... """
+        if len(regs_value)%2 == 1:
+            regs_value = regs_value + ' '
+        _uc_string = ascii_to_char_bit(regs_value)
+        ## assuming this function sanitized the string to unsigned C char type 
+        if _uc_string == None:
+            self.__debug_msg('write_multiple_register_ascii(): passed in string failed to convert to C unsigned char type most likely none ascii in the string')
+            return None
+        # check params
+        if not (0 <= int(regs_addr) <= 65535):
+            self.__debug_msg('write_multiple_register_ascii(): reg_addr out of range')
+            return None
+        if not (0 <= int(len(_uc_string)) + regs_addr <= 65535):
+            self.__debug_msg('write_multiple_register_ascii(): length of string plus starting register will go out of range')
+            return None
+        
+        # loop over the list and send write the register commands instead of doing a multi register write 
+        # this way avoid the having to figure out the byte count. the max mbus frame size 127 bytes 63 registers ... 
+        #print(_uc_string)
+        i = regs_addr 
+        for reg_value in _uc_string:
+            # build frame
+            #print('address: %s,  value %s' % ( i, reg_value) )
+            tx_buffer = self._mbus_frame(const.WRITE_SINGLE_REGISTER,
+                                        struct.pack('>H', i ) + reg_value)
+            # send request
+            s_send = self._send_mbus(tx_buffer)
+            # check error
+            if not s_send:
+                return None
+            # receive
+            f_body = self._recv_mbus()
+            # check error
+            if not f_body:
+                return None
+            # check fix frame size
+            if len(f_body) != 4:
+                self.__last_error = const.MB_RECV_ERR
+                self.__debug_msg('write_single_register(): rx frame size error')
+                self.close()
+                return None
+            # register extract
+            #print(f_body)
+            rx_reg_addr = struct.unpack('>H', f_body[0:2])
+            # check register write
+            #print ('i %s = regaddr %s' %(i, rx_reg_addr[0] ) )  
+            #print(reg_value)
+            is_ok = (rx_reg_addr[0] == i) and (f_body[2:] == reg_value)
+            if not is_ok: 
+                print(f_body[2:])
+                return None
+            i = i+1 
+        return True 
+
+# NOTE to SELF need to correct this so the client does not exceed the 63 register limit 
+# per mbus data frame spec  127 bytes divided by 2 bytes per register = 63.5 
+# round down 63 registers
     def write_multiple_registers(self, regs_addr, regs_value):
         """Modbus function WRITE_MULTIPLE_REGISTERS (0x10)
-
         :param regs_addr: registers address (0 to 65535)
         :type regs_addr: int
         :param regs_value: registers values to write
@@ -739,7 +825,6 @@ class ModbusClient:
 
     def _can_read(self):
         """Wait data available for socket read
-
         :returns: True if data available or None if timeout or socket error
         :rtype: bool or None
         """
@@ -755,7 +840,6 @@ class ModbusClient:
 
     def _send(self, data):
         """Send data over current socket
-
         :param data: registers value to write
         :type data: str (Python2) or class bytes (Python3)
         :returns: True if send ok or None if error
@@ -782,7 +866,6 @@ class ModbusClient:
 
     def _recv(self, max_size):
         """Receive data over current socket
-
         :param max_size: number of bytes to receive
         :type max_size: int
         :returns: receive data or None if error
@@ -807,7 +890,6 @@ class ModbusClient:
 
     def _recv_all(self, size):
         """Receive data over current socket, loop until all bytes is receive (avoid TCP frag)
-
         :param size: number of bytes to receive
         :type size: int
         :returns: receive data or None if error
@@ -823,7 +905,6 @@ class ModbusClient:
 
     def _send_mbus(self, frame):
         """Send modbus frame
-
         :param frame: modbus frame to send (with MBAP for TCP/CRC for RTU)
         :type frame: str (Python2) or class bytes (Python3)
         :returns: number of bytes send or None if error
@@ -843,7 +924,6 @@ class ModbusClient:
 
     def _recv_mbus(self):
         """Receive a modbus frame
-
         :returns: modbus frame body or None if error
         :rtype: str (Python2) or class bytes (Python3) or None
         """
@@ -940,7 +1020,6 @@ class ModbusClient:
 
     def _mbus_frame(self, fc, body):
         """Build modbus frame (add MBAP for Modbus/TCP, slave AD + CRC for RTU)
-
         :param fc: modbus function code
         :type fc: int
         :param body: modbus frame body
@@ -968,7 +1047,6 @@ class ModbusClient:
     def _pretty_dump(self, label, data):
         """Print modbus/TCP frame ('[header]body')
         or RTU ('body[CRC]') on stdout
-
         :param label: modbus function code
         :type label: str
         :param data: modbus frame
@@ -996,7 +1074,6 @@ class ModbusClient:
 
     def _add_crc(self, frame):
         """Add CRC to modbus frame (for RTU mode)
-
         :param frame: modbus RTU frame
         :type frame: str (Python2) or class bytes (Python3)
         :returns: modbus RTU frame with CRC
@@ -1007,7 +1084,6 @@ class ModbusClient:
 
     def _crc_is_ok(self, frame):
         """Check the CRC of modbus RTU frame
-
         :param frame: modbus RTU frame with CRC
         :type frame: str (Python2) or class bytes (Python3)
         :returns: status CRC (True for valid)
@@ -1017,7 +1093,6 @@ class ModbusClient:
 
     def __debug_msg(self, msg):
         """Print debug message if debug mode is on
-
         :param msg: debug message
         :type msg: str
         """
