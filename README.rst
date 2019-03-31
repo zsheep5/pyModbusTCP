@@ -1,9 +1,24 @@
 pyModbusTCP
 ===========
 
-A simple Modbus/TCP client library for Python.
+A simple Modbus/TCP Server and client library for Python.
 
-Since version 0.1.0, a server is also available for test purpose only (don't use in project).
+Forked version 0.9
+
+Several modifications made to the Modbus server.  
+1. It no longer unpacks binary data using struct libary converting to python data type.
+2. Added several class methods to the DataBank to convert from bytes streams to python type but you must know the location in the databank and how many registers data type is using.
+4. Added class methods to convert python types to C data type using struct libary
+5. Added a few functions to make it easier to write to ASCII data types into registers.
+
+
+
+In Process 
+==========
+Changing the logging/error reporting to use python's logging server...
+Adding Discrete Inputs to server:  read only : example is switch or relay closure in the real world
+Adding Input Registers to server:  read only : typicaly an AtoD input or other physical real world device...  
+
 
 pyModbusTCP is pure Python code without any extension or external module
 dependency.
@@ -11,100 +26,19 @@ dependency.
 Test
 ----
 
-The module is currently test on Python 2.6, 2.7, 3.2, 3.3, 3.4 and 3.5.
+The module is currently working on Python  3.5.
+
+Tested with PLC
+---------------
+Automation Direct P series
+Koyo DOL6 series 
+
 
 Status:
 
-.. image:: https://api.travis-ci.org/sourceperl/pyModbusTCP.svg?branch=master
-  :target: http://travis-ci.org/sourceperl/pyModbusTCP
-
-.. image:: https://readthedocs.org/projects/pymodbustcp/badge/?version=latest
   :target: http://pymodbustcp.readthedocs.io/en/latest/?badge=latest
 
-Setup
------
 
-You can install this package from:
-
-PyPI, the easy way:
-
-::
-
-    sudo pip install pyModbusTCP
-
-GitHub:
-
-::
-
-    git clone https://github.com/sourceperl/pyModbusTCP.git
-    cd pyModbusTCP
-    sudo python setup.py install
-
-Install the current devel-release:
-
-::
-
-    sudo pip install git+https://github.com/sourceperl/pyModbusTCP.git@devel
-
-Usage example
--------------
-
-See examples/ for full scripts.
-
-include (for all samples)
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-::
-
-    from pyModbusTCP.client import ModbusClient
-
-module init (TCP always open)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-::
-
-    # TCP auto connect on first modbus request
-    c = ModbusClient(host="localhost", port=502, auto_open=True)
-
-module init (TCP open/close for each request)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-::
-
-    # TCP auto connect on modbus request, close after it
-    c = ModbusClient(host="127.0.0.1", auto_open=True, auto_close=True)
-
-module init (with accessor functions)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-::
-
-    c = ModbusClient()
-    c.host("localhost")
-    c.port(502)
-    # managing TCP sessions with call to c.open()/c.close()
-    c.open()
-
-Read 2x 16 bits registers at modbus address 0 :
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-::
-
-    regs = c.read_holding_registers(0, 2)
-    if regs:
-        print(regs)
-    else:
-        print("read error")
-
-Write value 44 and 55 to registers at modbus address 10 :
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-::
-
-    if c.write_multiple_registers(10, [44,55]):
-        print("write ok")
-    else:
-        print("write error")
 
 Documentation
 -------------
